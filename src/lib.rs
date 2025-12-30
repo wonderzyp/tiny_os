@@ -3,8 +3,22 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
+#![feature(abi_x86_interrupt)]
 pub mod serial;
 pub mod vga_buffer;
+pub mod interrupts;
+pub mod memory;
+extern crate alloc;
+pub mod allocator;
+
+pub fn init() {
+    gdt::init();
+    interrupts::init_idt();
+    unsafe {interrupts::PICS.lock().initialize()};
+    x86_64::instructions::interrupts::enable();
+}
+
+pub mod gdt;
 
 
 use core::panic::PanicInfo;
@@ -37,7 +51,9 @@ pub fn test_panic_handler(_info: &PanicInfo) -> ! {
     serial_println!("[Failed]");
     serial_println!("Error: {}\n", _info);
     exit_qemu(QemuExitCode::Failed);
-    loop {}
+    loop {
+        hlt_loop();
+    }
 }
 
 
@@ -57,12 +73,28 @@ pub fn exit_qemu(exit_code: QemuExitCode) {
     }
 }
 
+pub fn hlt_loop() -> ! {
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+
+// -------- Test Cases --------
 
 #[cfg(test)]
-#[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
+use bootloader::{entry_point, BootInfo};
+
+#[cfg(test)]
+entry_point!(test_kernel_main);
+
+#[cfg(test)]
+fn test_kernel_main(_bootinfo: &'static BootInfo) -> ! {
+    init();
     test_main();
-    loop{}
+    loop{
+        hlt_loop();
+    }
 }
 
 #[cfg(test)]
